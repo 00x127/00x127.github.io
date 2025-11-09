@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Hex Editor</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="particles"></canvas>
+
+    <div class="container">
+        <header>
+            <h1>VIDEO HEX EDITOR</h1>
+            <p class="subtitle">Modify video metadata by editing raw bytes</p>
+        </header>
+
+        <div class="upload-zone" id="uploadZone">
+            <div class="upload-icon">+</div>
+            <h3>Drop your video file here</h3>
+            <p class="subtitle">Supports MP4, WebM, AVI, MKV</p>
+            <input type="file" id="fileInput" accept="video/*">
+        </div>
+
+        <div class="editor-section" id="editorSection">
+            <div class="warning">
+                WARNING: Modifying video metadata can make files unplayable. Always keep a backup of your original file.
+            </div>
+
+            <div class="file-info" id="fileInfo"></div>
+
+            <div class="modification-section">
+                <h3>Metadata Modifications</h3>
+
+                <div class="mod-group">
+                    <h4>Duration</h4>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Hours</label>
+                            <input type="number" id="durationHours" min="0" max="9999" placeholder="0">
+                        </div>
+                        <div class="input-group">
+                            <label>Minutes</label>
+                            <input type="number" id="durationMinutes" min="0" max="59" placeholder="0">
+                        </div>
+                        <div class="input-group">
+                            <label>Seconds</label>
+                            <input type="number" id="durationSeconds" min="0" max="59" placeholder="0">
+                        </div>
+                        <button onclick="modifyDuration()">Apply Duration</button>
+                    </div>
+                </div>
+
+                <div class="mod-group">
+                    <h4>Resolution</h4>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Width (px)</label>
+                            <input type="number" id="resWidth" min="1" max="99999" placeholder="1920">
+                        </div>
+                        <div class="input-group">
+                            <label>Height (px)</label>
+                            <input type="number" id="resHeight" min="1" max="99999" placeholder="1080">
+                        </div>
+                        <button onclick="modifyResolution()">Apply Resolution</button>
+                    </div>
+                </div>
+
+                <div class="mod-group">
+                    <h4>Bitrate</h4>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Bitrate (kbps)</label>
+                            <input type="number" id="bitrate" min="1" max="999999" placeholder="5000">
+                        </div>
+                        <button onclick="modifyBitrate()">Apply Bitrate</button>
+                    </div>
+                </div>
+
+                <div class="mod-group">
+                    <h4>Frame Rate</h4>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>FPS</label>
+                            <input type="number" id="framerate" min="1" max="999" placeholder="60" step="0.01">
+                        </div>
+                        <button onclick="modifyFramerate()">Apply FPS</button>
+                    </div>
+                </div>
+
+
+
+                <div class="mod-group">
+                    <h4>Timescale</h4>
+                    <div class="input-row">
+                        <div class="input-group">
+                            <label>Timescale Value</label>
+                            <input type="number" id="timescale" min="1" max="999999" placeholder="90000">
+                        </div>
+                        <button onclick="modifyTimescale()">Apply Timescale</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-edit">
+                <h3>Manual Byte Editor</h3>
+                <div class="edit-row">
+                    <div class="input-group">
+                        <label>Byte Offset (hex)</label>
+                        <input type="text" id="byteOffset" placeholder="1A2F">
+                    </div>
+                    <div class="input-group">
+                        <label>New Value (hex)</label>
+                        <input type="text" id="byteValue" placeholder="FF">
+                    </div>
+                    <button onclick="editByte()">Apply Byte</button>
+                </div>
+                <div class="edit-info">
+                    Click any byte in the hex viewer below to select it, or enter offset manually
+                </div>
+            </div>
+
+            <h3>Hex View (first 1024 bytes)</h3>
+            <div class="hex-viewer" id="hexViewer"></div>
+
+            <div class="action-bar">
+                <button onclick="downloadModified()">Download Modified File</button>
+                <button class="btn-secondary" onclick="resetFile()">Reset to Original</button>
+            </div>
+        </div>
+
+        <footer style="text-align: center; margin-top: 60px; padding: 20px; color: #666;">
+            <strong>Made by 0x127</strong>
+        </footer>
+    </div>
+
+    <script src="particles.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
