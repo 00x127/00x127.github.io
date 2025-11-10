@@ -30,7 +30,7 @@ function handleFile(file) {
     fileName = file.name;
     const reader = new FileReader();
     reader.onload = (e) => {
-        originalData = new Uint8Array(e.target.result);
+        originalData = e.target.result;
         fileData = new Uint8Array(originalData);
         displayEditor();
     };
@@ -99,18 +99,15 @@ function formatBytes(bytes) {
 }
 
 function readUint32BE(offset) {
-    if (offset + 3 >= fileData.length) {
-        console.error(`Read error: offset 0x${offset.toString(16)} out of bounds`);
-        return 0;
-    }
-    return (fileData[offset] << 24) | (fileData[offset + 1] << 16) | (fileData[offset + 2] << 8) | fileData[offset + 3];
+    if (offset + 3 >= fileData.length) return 0;
+    return ((fileData[offset] & 0xFF) << 24) | 
+           ((fileData[offset + 1] & 0xFF) << 16) | 
+           ((fileData[offset + 2] & 0xFF) << 8) | 
+           (fileData[offset + 3] & 0xFF);
 }
 
 function writeUint32BE(offset, value) {
-    if (offset + 3 >= fileData.length) {
-        console.error(`Write error: offset 0x${offset.toString(16)} out of bounds`);
-        return false;
-    }
+    if (offset + 3 >= fileData.length) return false;
     fileData[offset] = (value >>> 24) & 0xFF;
     fileData[offset + 1] = (value >>> 16) & 0xFF;
     fileData[offset + 2] = (value >>> 8) & 0xFF;
@@ -119,12 +116,9 @@ function writeUint32BE(offset, value) {
 }
 
 function writeUint64BE(offset, value) {
-    if (offset + 7 >= fileData.length) {
-        console.error(`Write error: offset 0x${offset.toString(16)} out of bounds`);
-        return false;
-    }
-    const high = Math.floor(value / 0x100000000);
-    const low = value >>> 0;
+    if (offset + 7 >= fileData.length) return false;
+    const high = Math.floor(value / 4294967296);
+    const low = value & 0xFFFFFFFF;
     writeUint32BE(offset, high);
     writeUint32BE(offset + 4, low);
     return true;
@@ -179,7 +173,7 @@ function modifyDuration() {
     }
     const moov = findBox('moov');
     if (!moov) {
-        alert('ERROR: Could not find moov box. File may not be a valid MP4.');
+        alert('ERROR: Could not find moov box');
         return;
     }
     const mvhd = findBox('mvhd', moov.dataOffset, moov.endOffset);
@@ -192,7 +186,7 @@ function modifyDuration() {
     const durationOffset = mvhdVersion === 0 ? mvhd.dataOffset + 16 : mvhd.dataOffset + 24;
     const timescale = readUint32BE(timescaleOffset);
     if (timescale === 0) {
-        alert(`ERROR: Invalid timescale (0) in mvhd at offset 0x${timescaleOffset.toString(16)}`);
+        alert('ERROR: Invalid timescale');
         return;
     }
     const newDuration = Math.floor(totalSeconds * timescale);
@@ -201,9 +195,9 @@ function modifyDuration() {
     } else {
         writeUint64BE(durationOffset, newDuration);
     }
-    let updates = 0;
+    let updates = 1;
     const traks = findAllBoxes('trak', moov.dataOffset, moov.endOffset);
-    traks.forEach((trak, idx) => {
+    traks.forEach(trak => {
         const tkhd = findBox('tkhd', trak.dataOffset, trak.endOffset);
         if (tkhd) {
             const version = fileData[tkhd.dataOffset];
@@ -240,15 +234,15 @@ function modifyDuration() {
             if (elst && elst.dataOffset + 16 <= fileData.length) {
                 const version = fileData[elst.dataOffset];
                 const entryCount = readUint32BE(elst.dataOffset + 4);
-                for (let i = 0; i < entryCount && elst.dataOffset + 20 + i * (version === 0 ? 12 : 20) < fileData.length; i++) {
-                    const entryOffset = elst.dataOffset + 8 + i * (version === 0 ? 12 : 20);
+                for (let i = 0; i < entryCount; i++) {
+                    const entrySize = version === 0 ? 12 : 20;
+                    const entryOffset = elst.dataOffset + 8 + i * entrySize;
+                    if (entryOffset + entrySize > fileData.length) break;
                     const segmentDuration = Math.floor(totalSeconds * timescale);
                     if (version === 0) {
                         writeUint32BE(entryOffset, segmentDuration);
-                        writeUint32BE(entryOffset + 4, 0);
                     } else {
                         writeUint64BE(entryOffset, segmentDuration);
-                        writeUint64BE(entryOffset + 8, 0);
                     }
                     updates++;
                 }
@@ -256,220 +250,189 @@ function modifyDuration() {
         }
     });
     displayHex();
-    alert(`Duration set to ${hours}h ${minutes}m ${seconds}s\nUpdated ${updates} metadata entries.`);
+    alert(`Duration set to ${hours}h ${minutes}m ${seconds}s\nUpdated ${updates} entries`);
 }
 
 function modifyResolution() {
     const width = parseInt(document.getElementById('resWidth').value);
     const height = parseInt(document.getElementById('resHeight').value);
     if (!width || !height || width <= 0 || height <= 0) {
-        alert('Please enter valid width and height');
+        alert('Please enter valid dimensions');
         return;
     }
-    const moov = findBox('moov');
-    if (!moov) {
-        alert('Could not find moov box');
-        return;
-    }
-    const tkhds = findAllBoxes('tkhd', moov.dataOffset, moov.endOffset);
+    const tkhds = findAllBoxes('tkhd');
     if (tkhds.length === 0) {
-        alert('Could not find any tkhd boxes');
+        alert('Could not find tkhd boxes');
         return;
     }
-    tkhds.forEach((tkhd, idx) => {
+    tkhds.forEach(tkhd => {
         const version = fileData[tkhd.dataOffset];
-        let widthOffset = version === 0 ? tkhd.dataOffset + 76 : tkhd.dataOffset + 88;
-        let heightOffset = version === 0 ? tkhd.dataOffset + 80 : tkhd.dataOffset + 92;
+        const widthOffset = version === 0 ? tkhd.dataOffset + 76 : tkhd.dataOffset + 88;
+        const heightOffset = version === 0 ? tkhd.dataOffset + 80 : tkhd.dataOffset + 92;
         writeUint32BE(widthOffset, width << 16);
         writeUint32BE(heightOffset, height << 16);
     });
     displayHex();
-    alert(`Resolution set to ${width}x${height}\nUpdated ${tkhds.length} tkhd box(es)`);
+    alert(`Resolution set to ${width}x${height}`);
 }
 
 function modifyBitrate() {
     const bitrate = parseInt(document.getElementById('bitrate').value);
     if (!bitrate || bitrate <= 0) {
-        alert('Please enter a valid bitrate (kbps)');
+        alert('Please enter valid bitrate');
         return;
     }
     const bitrateBps = bitrate * 1000;
     let updates = 0;
-    let log = '';
     const avc1 = findBox('avc1');
     if (avc1 && avc1.dataOffset + 48 <= fileData.length) {
         writeUint32BE(avc1.dataOffset + 40, bitrateBps);
         writeUint32BE(avc1.dataOffset + 44, bitrateBps);
-        log += `avc1: ${bitrate} kbps at 0x${avc1.dataOffset.toString(16)}\n`;
         updates++;
     }
     const mp4a = findBox('mp4a');
     if (mp4a && mp4a.dataOffset + 48 <= fileData.length) {
         writeUint32BE(mp4a.dataOffset + 40, bitrateBps);
         writeUint32BE(mp4a.dataOffset + 44, bitrateBps);
-        log += `mp4a: ${bitrate} kbps at 0x${mp4a.dataOffset.toString(16)}\n`;
         updates++;
     }
     const esds = findBox('esds');
     if (esds && esds.dataOffset + 28 <= fileData.length) {
         writeUint32BE(esds.dataOffset + 20, bitrateBps);
         writeUint32BE(esds.dataOffset + 24, bitrateBps);
-        log += `esds: ${bitrate} kbps at 0x${esds.dataOffset.toString(16)}\n`;
         updates++;
     }
     displayHex();
-    if (updates > 0) {
-        alert(`Bitrate set to ${bitrate} kbps\n\nUpdated ${updates} location(s):\n${log}\n\nNote: Many players calculate bitrate from file size and duration instead of reading these fields.`);
-    } else {
-        alert(`Could not find bitrate fields (avc1/mp4a/esds). This file may use a different structure.`);
-    }
+    alert(updates > 0 ? `Bitrate set to ${bitrate} kbps` : 'Could not find bitrate fields');
 }
 
 function modifyFramerate() {
     const fps = parseFloat(document.getElementById('framerate').value);
     if (!fps || fps <= 0) {
-        alert('Please enter a valid frame rate');
+        alert('Please enter valid FPS');
         return;
     }
     const mdhd = findBox('mdhd');
     if (!mdhd) {
-        alert('ERROR: Could not find mdhd box');
+        alert('Could not find mdhd box');
         return;
     }
     const version = fileData[mdhd.dataOffset];
     const timescaleOffset = version === 0 ? mdhd.dataOffset + 12 : mdhd.dataOffset + 20;
     const timescale = readUint32BE(timescaleOffset);
     if (timescale === 0) {
-        alert('ERROR: Invalid timescale in mdhd');
+        alert('Invalid timescale');
         return;
     }
     const sampleDuration = Math.floor(timescale / fps);
     const stts = findBox('stts');
     if (!stts) {
-        alert('ERROR: Could not find stts box (sample timing)');
+        alert('Could not find stts box');
         return;
     }
     const entryCount = readUint32BE(stts.dataOffset + 4);
     if (entryCount === 0) {
-        alert('ERROR: stts box has no entries');
+        alert('No stts entries');
         return;
     }
-    const sampleDurOffset = stts.dataOffset + 12;
-    writeUint32BE(sampleDurOffset, sampleDuration);
+    writeUint32BE(stts.dataOffset + 12, sampleDuration);
     displayHex();
-    alert(`Frame rate set to ${fps} FPS\n\nUpdated stts box sample duration to ${sampleDuration}\n\nThis only changes timing metadata.`);
+    alert(`FPS set to ${fps}`);
 }
 
-
+function modifyFilesize() {
+    const size = parseInt(document.getElementById('filesize').value);
+    if (!size || size <= 0) {
+        alert('Enter valid size');
+        return;
+    }
+    writeUint32BE(0, size);
+    displayHex();
+    alert('File size header modified');
+}
 
 function modifyTimescale() {
     const timescale = parseInt(document.getElementById('timescale').value);
     if (!timescale || timescale <= 0) {
-        alert('Please enter a valid timescale');
+        alert('Enter valid timescale');
         return;
     }
     const moov = findBox('moov');
     if (!moov) {
-        alert('ERROR: Could not find moov box');
+        alert('Could not find moov');
         return;
     }
     const mvhd = findBox('mvhd', moov.dataOffset, moov.endOffset);
     if (!mvhd) {
-        alert('ERROR: Could not find mvhd box');
+        alert('Could not find mvhd');
         return;
     }
-    const mvhdVersion = fileData[mvhd.dataOffset];
-    const oldTimescaleOffset = mvhdVersion === 0 ? mvhd.dataOffset + 12 : mvhd.dataOffset + 20;
-    const durationOffset = mvhdVersion === 0 ? mvhd.dataOffset + 16 : mvhd.dataOffset + 24;
-    const oldTimescale = readUint32BE(oldTimescaleOffset);
-    const oldDuration = mvhdVersion === 0 ? readUint32BE(durationOffset) :
-    (readUint32BE(durationOffset) * 0x100000000 + readUint32BE(durationOffset + 4));
-    if (oldTimescale === 0) {
-        alert('ERROR: Invalid old timescale found');
+    const version = fileData[mvhd.dataOffset];
+    const tsOffset = version === 0 ? mvhd.dataOffset + 12 : mvhd.dataOffset + 20;
+    const durOffset = version === 0 ? mvhd.dataOffset + 16 : mvhd.dataOffset + 24;
+    const oldTs = readUint32BE(tsOffset);
+    const oldDur = version === 0 ? readUint32BE(durOffset) :
+        (readUint32BE(durOffset) * 0x100000000 + readUint32BE(durOffset + 4));
+    if (oldTs === 0) {
+        alert('Invalid old timescale');
         return;
     }
-    const totalTime = oldDuration / oldTimescale;
-    const newDuration = Math.floor(totalTime * timescale);
-    writeUint32BE(oldTimescaleOffset, timescale);
-    if (mvhdVersion === 0) {
-        writeUint32BE(durationOffset, newDuration);
+    const totalTime = oldDur / oldTs;
+    const newDur = Math.floor(totalTime * timescale);
+    writeUint32BE(tsOffset, timescale);
+    if (version === 0) {
+        writeUint32BE(durOffset, newDur);
     } else {
-        writeUint64BE(durationOffset, newDuration);
+        writeUint64BE(durOffset, newDur);
     }
     let updates = 1;
     const mdias = findAllBoxes('mdia', moov.dataOffset, moov.endOffset);
-    mdias.forEach((mdia, idx) => {
+    mdias.forEach(mdia => {
         const mdhd = findBox('mdhd', mdia.dataOffset, mdia.endOffset);
         if (mdhd) {
-            const version = fileData[mdhd.dataOffset];
-            const mdhdOldTimescaleOffset = version === 0 ? mdhd.dataOffset + 12 : mdhd.dataOffset + 20;
-            const mdhdDurOffset = version === 0 ? mdhd.dataOffset + 16 : mdhd.dataOffset + 24;
-            const mdhdOldTimescale = readUint32BE(mdhdOldTimescaleOffset);
-            const mdhdOldDuration = version === 0 ? readUint32BE(mdhdDurOffset) :
-            (readUint32BE(mdhdDurOffset) * 0x100000000 + readUint32BE(mdhdDurOffset + 4));
-            if (mdhdOldTimescale > 0) {
-                const mdhdTotalTime = mdhdOldDuration / mdhdOldTimescale;
-                const mdhdNewDuration = Math.floor(mdhdTotalTime * timescale);
-                writeUint32BE(mdhdOldTimescaleOffset, timescale);
-                if (version === 0) {
-                    writeUint32BE(mdhdDurOffset, mdhdNewDuration);
+            const v = fileData[mdhd.dataOffset];
+            const tsOff = v === 0 ? mdhd.dataOffset + 12 : mdhd.dataOffset + 20;
+            const durOff = v === 0 ? mdhd.dataOffset + 16 : mdhd.dataOffset + 24;
+            const oldTs2 = readUint32BE(tsOff);
+            const oldDur2 = v === 0 ? readUint32BE(durOff) :
+                (readUint32BE(durOff) * 0x100000000 + readUint32BE(durOff + 4));
+            if (oldTs2 > 0) {
+                const time = oldDur2 / oldTs2;
+                const newDur2 = Math.floor(time * timescale);
+                writeUint32BE(tsOff, timescale);
+                if (v === 0) {
+                    writeUint32BE(durOff, newDur2);
                 } else {
-                    writeUint64BE(mdhdDurOffset, mdhdNewDuration);
+                    writeUint64BE(durOff, newDur2);
                 }
                 updates++;
             }
         }
     });
-    const stts = findBox('stts');
-    if (stts) {
-        const entryCount = readUint32BE(stts.dataOffset + 4);
-        if (entryCount > 0) {
-            const oldSampleDuration = readUint32BE(stts.dataOffset + 12);
-            if (oldSampleDuration > 0) {
-                const oldFps = oldTimescale / oldSampleDuration;
-                const newSampleDuration = Math.floor(timescale / oldFps);
-                writeUint32BE(stts.dataOffset + 12, newSampleDuration);
-                updates++;
-            }
-        }
-    }
     displayHex();
-    alert(`Timescale set to ${timescale}\n\nUpdated ${updates} boxes with recalculated durations to preserve timing.\n\nCheck console for full details.`);
+    alert(`Timescale set to ${timescale}\nUpdated ${updates} boxes`);
 }
 
 function editByte() {
     const offsetHex = document.getElementById('byteOffset').value.trim();
     const valueHex = document.getElementById('byteValue').value.trim();
     if (!offsetHex || !valueHex) {
-        alert('Please enter both offset and value');
+        alert('Enter both offset and value');
         return;
     }
-    try {
-        const offset = parseInt(offsetHex, 16);
-        const value = parseInt(valueHex, 16);
-        if (isNaN(offset) || isNaN(value)) {
-            alert('Invalid hex values - use format like "1A2F" for offset and "FF" for value');
-            return;
-        }
-        if (offset < 0 || offset >= fileData.length) {
-            alert(`Offset out of range (0 - ${(fileData.length - 1).toString(16).toUpperCase()})`);
-            return;
-        }
-        if (value < 0 || value > 255) {
-            alert('Value must be between 00 and FF');
-            return;
-        }
-        fileData[offset] = value;
-        selectedByteOffset = offset;
-        displayHex();
-        alert(`Byte at offset 0x${offset.toString(16).toUpperCase()} set to 0x${value.toString(16).toUpperCase()}`);
-    } catch (e) {
-        alert('Error: ' + e.message);
+    const offset = parseInt(offsetHex, 16);
+    const value = parseInt(valueHex, 16);
+    if (isNaN(offset) || isNaN(value) || offset < 0 || offset >= fileData.length || value < 0 || value > 255) {
+        alert('Invalid values');
+        return;
     }
+    fileData[offset] = value;
+    selectedByteOffset = offset;
+    displayHex();
 }
 
 function downloadModified() {
-    const blob = new Blob([fileData.buffer], { type: 'video/mp4' });
+    const blob = new Blob([fileData], { type: 'video/mp4' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -481,10 +444,9 @@ function downloadModified() {
 }
 
 function resetFile() {
-    if (confirm('Reset all changes and restore original file?')) {
+    if (confirm('Reset all changes?')) {
         fileData = new Uint8Array(originalData);
         selectedByteOffset = null;
         displayHex();
-        alert('File reset to original');
     }
 }
